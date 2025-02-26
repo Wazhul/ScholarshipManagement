@@ -1,0 +1,63 @@
+[
+    {
+        "inputs": [
+            {
+                "internalType": "string",
+                "name": "uniqueId",
+                "type": "string"
+            },
+            {
+                "internalType": "bool",
+                "name": "eligible",
+                "type": "bool"
+            }
+        ],
+        "name": "recordScholarship",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "string",
+                "name": "uniqueId",
+                "type": "string"
+            }
+        ],
+        "name": "getScholarshipRecord",
+        "outputs": [
+            {
+                "internalType": "string",
+                "name": "",
+                "type": "string"
+            },
+            {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {
+                "indexed": false,
+                "internalType": "string",
+                "name": "uniqueId",
+                "type": "string"
+            },
+            {
+                "indexed": false,
+                "internalType": "bool",
+                "name": "eligible",
+                "type": "bool"
+            }
+        ],
+        "name": "ScholarshipRecorded",
+        "type": "event"
+    }
+]

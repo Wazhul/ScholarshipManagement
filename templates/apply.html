@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Apply for Scholarship</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+</head>
+<body>
+<div class="container">
+    <h2 class="mt-5">Scholarship Application</h2>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+    {% endwith %}
+    <form method="post" action="{{ url_for('apply') }}">
+    <div class="form-group">
+        <label for="overall">Overall Score:</label>
+        <input type="number" step="0.01" class="form-control" name="overall" required>
+    </div>
+    <div class="form-group">
+        <label for="income">Income:</label>
+        <input type="number" step="0.01" class="form-control" name="income" required>
+    </div>
+    <div class="form-group">
+        <label for="extra">Extracurricular Score:</label>
+        <input type="number" step="0.01" class="form-control" name="extra" required>
+    </div>
+    <div class="form-group">
+        <label for="department">Department:</label>
+        <select name="department" class="form-control" required>
+        <option value="Computer Science and Engineering">Computer Science and Engineering</option>
+        <option value="Electrical Engineering">Electrical Engineering</option>
+        <option value="Mechanical Engineering">Mechanical Engineering</option>
+        <!-- Add more options as needed -->
+        </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Submit Application</button>
+    </form>
+</div>
+</body>
+</html>

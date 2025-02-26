@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard - Scholarship Management</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+</head>
+<body>
+<div class="container">
+    <h2 class="mt-5">Dashboard</h2>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+    {% endwith %}
+    <p><strong>Username:</strong> {{ student.username }}</p>
+    <p><strong>Wallet Address:</strong> {{ student.wallet_address }}</p>
+    <p><strong>Scholarship Status:</strong> {{ student.scholarship_status }}</p>
+    <a href="{{ url_for('apply') }}" class="btn btn-primary">Reapply</a>
+</div>
+</body>
+</html>
