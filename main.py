@@ -1,216 +1,382 @@
 import os
 import json
-import numpy as np
 import pandas as pd
+from datetime import datetime
+from sqlalchemy import Enum
 from flask import Flask, request, render_template, redirect, url_for, session, flash
 from flask_sqlalchemy import SQLAlchemy
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
 from web3 import Web3
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # -------------------------------
 # Flask App & Database Setup
 # -------------------------------
 app = Flask(__name__)
-app.secret_key = 'your_secret_key_here'  # Change this to a strong secret key
+app.secret_key = os.urandom(24)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///students.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 db = SQLAlchemy(app)
 
-# Student model to store user registration info and scholarship status
-class Student(db.Model):
+# Monkey-patch create_all to ensure app context
+_orig_create_all = db.create_all
+
+def create_all_with_context(*args, **kwargs):
+    with app.app_context():
+        _orig_create_all(*args, **kwargs)
+
+# Override method
+db.create_all = create_all_with_context
+ROLE_ENUM = ('student', 'institution', 'donor', 'admin')
+
+
+# -------------------------------
+# Database Models
+# -------------------------------
+class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    unique_id = db.Column(db.String(100), unique=True, nullable=False)
     username = db.Column(db.String(100), unique=True, nullable=False)
-    password = db.Column(db.String(100), nullable=False)
-    wallet_address = db.Column(db.String(100), nullable=False)
-    scholarship_status = db.Column(db.String(50))  # e.g., "Selected" or "Not Selected"
+    password = db.Column(db.String(200), nullable=False)
+    role = db.Column(
+        Enum(*ROLE_ENUM, name='user_roles'),
+        nullable=False,
+        default='student'
+    )
+    wallet_address = db.Column(db.String(100))
+    institution_name = db.Column(db.String(100))
+    balance = db.Column(db.Float, default=0.0)
 
-# Global variable to store the training feature columns
-model_feature_columns = None
+class Scholarship(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(100), nullable=False)
+    institution_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    deadline = db.Column(db.DateTime)
+    criteria = db.Column(db.Text)
+    department = db.Column(db.String(50))
 
-# -------------------------------
-# Data Loading and ML Model Setup
-# -------------------------------
-def load_and_prepare_data():
-    """
-    Load the student CSV dataset (student_dataset.csv) and prepare the data.
-    Mapping:
-        - 'Overall' corresponds to the overall score (replacing GPA)
-        - 'Income' corresponds to the income data (replacing income)
-        - 'Extra' corresponds to extracurricular activities (replacing extracurricular)
-        - 'Department' corresponds to application history (replacing application_history)
-    
-    Eligibility Criteria:
-        - Low income: Income below a certain threshold (e.g., lower 30%).
-        - High overall score: Overall above a threshold (e.g., upper 30%).
-        - High extracurricular participation: Extra above a threshold (e.g., upper 30%).
-    """
-    df = pd.read_csv('student_dataset.csv')
-    df.ffill(inplace=True)
+    # Relationships
+    institution = db.relationship('User', backref='created_scholarships')
+    applications = db.relationship('Application', backref='scholarship', cascade='all, delete-orphan')
 
-    # Convert columns to numeric
-    df['Income'] = pd.to_numeric(df['Income'], errors='coerce')
-    df['Overall'] = pd.to_numeric(df['Overall'], errors='coerce')
-    df['Extra'] = pd.to_numeric(df['Extra'], errors='coerce')
+class Application(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    scholarship_id = db.Column(db.Integer, db.ForeignKey('scholarship.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending')
+    overall_score = db.Column(db.Float)
+    hsc_score = db.Column(db.Float)
+    ssc_score = db.Column(db.Float)
+    preparation = db.Column(db.Float)
+    attendance = db.Column(db.Float)
+    income = db.Column(db.Float)
+    extracurricular = db.Column(db.Float)
+    tx_hash = db.Column(db.String(66))
+    rejection_reason = db.Column(db.Text, nullable=True)
+    apply_date = db.Column(db.DateTime, default=datetime.utcnow)
 
-    print("Columns in CSV:", df.columns)
-    
-    # Define thresholds based on quantiles
-    income_threshold = df['Income'].quantile(0.3)
-    overall_threshold = df['Overall'].quantile(0.7)
-    extra_threshold = df['Extra'].quantile(0.7)
-    
-    # Create the 'eligible' column based on your criteria
-    df['eligible'] = ((df['Income'] < income_threshold) &
-                        (df['Overall'] > overall_threshold) &
-                        (df['Extra'] > extra_threshold)).astype(int)
-    
-    # One-hot encode the 'Department' column to convert it to numeric
-    department_dummies = pd.get_dummies(df['Department'], prefix='dept')
-    
-    # Concatenate the one-hot encoded columns with the numeric features
-    features = pd.concat([df[['Overall', 'Income', 'Extra']], department_dummies], axis=1)
-    target = df['eligible']
-    
-    return features, target
-
-def train_model():
-    """
-    Train a Random Forest Classifier using the preprocessed data.
-    """
-    global model_feature_columns
-    features, target = load_and_prepare_data()
-    # Save the training feature columns for later use
-    model_feature_columns = features.columns  
-    X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.3, random_state=42)
-    
-    model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42)
-    model.fit(X_train, y_train)
-    
-    predictions = model.predict(X_test)
-    acc = accuracy_score(y_test, predictions)
-    print("Model Accuracy: ", acc)
-    return model
-
-ml_model = train_model()
+    student = db.relationship('User', backref='applications')
 
 # -------------------------------
-# Blockchain Integration Setup
+# ML Predictor
 # -------------------------------
-w3 = Web3(Web3.HTTPProvider("http://127.0.0.1:7545"))
-if not w3.is_connected():
-    raise Exception("Web3 is not connected. Please ensure Ganache (or your Ethereum node) is running.")
+class ScholarshipPredictor:
+    def __init__(self):
+        self.model = RandomForestClassifier(n_estimators=100, random_state=42)
+        self.feature_columns = []
+        self.trained = False
 
-contract_address = Web3.to_checksum_address("0xd8b934580fcE35a11B58C6D73aDeE468a2833fa8")
-with open('scholarship_manager_abi.json', 'r') as abi_file:
-    contract_abi = json.load(abi_file)
+    def train_model(self, dataset_path='student_dataset.csv'):
+        df = pd.read_csv(dataset_path)
+        # Preprocessing
+        def preprocess_income(val):
+            m = {'Low (Below 15,000)':15000, 'Lower middle (15,000-30,000)':22500,
+                 'Middle (15,000-30,000)':22500, 'Upper middle (30,000-50,000)':40000,
+                 'High (Above 50,000)':60000}
+            return m.get(str(val).strip(), pd.NA)
+        def preprocess_preparation(val):
+            m = {'0-1 Hour':0.5,'1-2 Hours':1.5,'2-3 Hours':2.5,'More than 3 Hours':4.0}
+            return m.get(str(val).strip(), pd.NA)
+        def preprocess_attendance(val):
+            s = str(val).strip()
+            if '-' in s:
+                return float(s.split('-')[0].replace('%','')) + 5
+            if 'Below' in s:
+                return float(s.replace('Below','').replace('%','').strip()) - 5
+            return float(s.replace('%',''))
+        def preprocess_extra(val):
+            return 1 if str(val).strip().lower()=='yes' else 0
 
-scholarship_contract = w3.eth.contract(address=contract_address, abi=contract_abi)
-w3.eth.default_account = w3.eth.accounts[0]
+        for col, fn in [('Income',preprocess_income), ('Preparation',preprocess_preparation),
+                        ('Attendance',preprocess_attendance), ('Extra',preprocess_extra)]:
+            df[col] = df[col].apply(fn)
+        cols = ['HSC','SSC','Preparation','Attendance','Overall','Income','Extra']
+        for c in cols:
+            df[c] = pd.to_numeric(df[c], errors='coerce')
+        df.dropna(subset=cols, inplace=True)
+
+        if len(df) < 10:
+            raise ValueError('Not enough valid rows after preprocessing')
+
+        income_thr = df['Income'].quantile(0.3)
+        overall_thr = df['Overall'].quantile(0.7)
+        extra_thr = df['Extra'].quantile(0.7)
+        df['eligible'] = ((df['Income']<income_thr) & (df['Overall']>overall_thr) & (df['Extra']>extra_thr)).astype(int)
+
+        num = df[cols]
+        cat = pd.get_dummies(df['Department'], prefix='dept')
+        X = pd.concat([num,cat], axis=1)
+        y = df['eligible']
+        self.feature_columns = X.columns.tolist()
+
+        X_train, X_test, y_train, y_test = train_test_split(X,y,test_size=0.2,random_state=42)
+        self.model.fit(X_train, y_train)
+        print(f"Model trained ({len(X_train)} samples), accuracy: {self.model.score(X_test,y_test):.2f}")
+        self.trained = True
+
+    def predict(self, df_in):
+        if not self.trained:
+            raise RuntimeError('Model not trained')
+        for col in self.feature_columns:
+            if col not in df_in.columns:
+                df_in[col] = 0
+        df_in = df_in[self.feature_columns]
+        return self.model.predict(df_in)
+
+predictor = ScholarshipPredictor()
+contract = None
 
 # -------------------------------
-# Web Routes for DApp Functionality
+# Authentication & User Routes
 # -------------------------------
 @app.route('/')
-def index():
-    return render_template('index.html')
+def home():
+    return redirect(url_for('dashboard'))
 
-@app.route('/register', methods=['GET', 'POST'])
+@app.route('/register', methods=['GET','POST'])
 def register():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        wallet_address = request.form['wallet_address']
-        unique_id = "UID" + str(np.random.randint(100000, 999999))
-        new_student = Student(unique_id=unique_id, username=username, password=password,
-                                wallet_address=wallet_address, scholarship_status="Pending")
-        db.session.add(new_student)
+    if request.method=='POST':
+        uname = request.form['username']
+        pwd = request.form['password']
+        role = request.form['role']
+        waddr = request.form.get('wallet_address')
+        iname = request.form.get('institution_name')
+        if User.query.filter_by(username=uname).first():
+            flash('Username taken', 'error')
+            return redirect(url_for('register'))
+        user = User(
+            username=uname,
+            password=generate_password_hash(pwd),
+            role=role,
+            wallet_address=waddr,
+            institution_name=iname
+        )
+        db.session.add(user)
         db.session.commit()
-        flash("Registration successful! Please login.", "success")
+        flash('Registered! Please log in.', 'success')
         return redirect(url_for('login'))
     return render_template('register.html')
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/login', methods=['GET','POST'])
 def login():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        student = Student.query.filter_by(username=username, password=password).first()
-        if student:
-            session['student_id'] = student.id
-            flash("Login successful!", "success")
-            # Redirect to the scholarship application form after login
-            return redirect(url_for('apply'))
-        else:
-            flash("Invalid credentials. Please try again.", "error")
-            return redirect(url_for('login'))
+    if request.method=='POST':
+        uname = request.form['username']
+        pwd = request.form['password']
+        user = User.query.filter_by(username=uname).first()
+        if user and check_password_hash(user.password,pwd):
+            session['user_id']=user.id
+            session['role']=user.role
+            flash('Logged in','success')
+            return redirect(url_for('dashboard'))
+        flash('Invalid credentials','error')
     return render_template('login.html')
 
-# Scholarship Application Route
-@app.route('/apply', methods=['GET', 'POST'])
-def apply():
-    if 'student_id' not in session:
-        flash("Please login to apply for the scholarship.", "warning")
-        return redirect(url_for('login'))
-    student = Student.query.get(session['student_id'])
-    if request.method == 'POST':
-        try:
-            overall = float(request.form['overall'])
-            income = float(request.form['income'])
-            extra = float(request.form['extra'])
-            department = request.form['department']
-        except ValueError:
-            flash("Invalid input. Please enter valid numeric values for Overall, Income, and Extra.", "error")
-            return redirect(url_for('apply'))
-        
-        # Create a DataFrame with the same structure as the training features
-        input_data = pd.DataFrame({
-            'Overall': [overall],
-            'Income': [income],
-            'Extra': [extra],
-            'Department': [department]
-        })
-        # One-hot encode the department column
-        department_dummies = pd.get_dummies(input_data['Department'], prefix='dept')
-        input_features = pd.concat([input_data[['Overall', 'Income', 'Extra']], department_dummies], axis=1)
-        
-        # Ensure the input features DataFrame has the same columns as the training set
-        for col in model_feature_columns:
-            if col not in input_features.columns:
-                input_features[col] = 0
-        input_features = input_features[model_feature_columns]
-        
-        # Make prediction using the trained model
-        prediction = ml_model.predict(input_features)[0]
-        if prediction == 1:
-            student.scholarship_status = "Selected"
-            is_eligible = True
-            flash("Congratulations! You are eligible for the scholarship.", "success")
-        else:
-            student.scholarship_status = "Not Selected"
-            is_eligible = False
-            flash("Unfortunately, you are not eligible for the scholarship.", "error")
-        
-        db.session.commit()
-        
-        # Record the decision on the blockchain using the smart contract call
-        tx_hash = scholarship_contract.functions.recordScholarship(student.unique_id, is_eligible).transact()
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-        print("Blockchain transaction receipt:", receipt)
-        
-        return redirect(url_for('dashboard'))
-    return render_template('apply.html')
-
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('Logged out','success')
+    return redirect(url_for('login'))
+# -------------------------------
+# Scholarship CRUD & Dashboard
+# -------------------------------
 @app.route('/dashboard')
 def dashboard():
-    if 'student_id' not in session:
-        flash("Please login to access your dashboard.", "warning")
+    if 'user_id' not in session:
         return redirect(url_for('login'))
-    student = Student.query.get(session['student_id'])
-    return render_template('dashboard.html', student=student)
+    user = User.query.get(session['user_id'])
 
-if __name__ == '__main__':
+    if user.role == 'student':
+        applied = Application.query.filter_by(student_id=user.id).all()
+        available = Scholarship.query.all()
+        stats = {
+            'pending':  sum(1 for a in applied if a.status=='pending'),
+            'approved': sum(1 for a in applied if a.status=='approved'),
+            'rejected': sum(1 for a in applied if a.status=='rejected'),
+        }
+        return render_template('dashboard.html',
+            current_user=user,
+            applied_scholarships=applied,
+            available_scholarships=available,
+            application_stats=stats
+        )
+
+    elif user.role == 'institution':
+        created = Scholarship.query.filter_by(institution_id=user.id).all()
+        return render_template('dashboard.html',
+            current_user=user,
+            created_scholarships=created
+        )
+
+    else:
+        all_users = User.query.all()
+        return render_template('dashboard.html',
+            current_user=user,
+            all_users=all_users
+        )
+
+@app.route('/create_scholarship', methods=['POST'])
+def create_scholarship():
+    if session.get('role')!='institution':
+        flash('Unauthorized','error')
+        return redirect(url_for('login'))
+    title      = request.form['name'].strip()
+    amount     = float(request.form['amount'])
+    deadline   = datetime.strptime(request.form['deadline'],'%Y-%m-%d')
+    criteria   = request.form['criteria'].strip()
+    department = request.form['department'].strip()
+    new_sch = Scholarship(
+        title=title,
+        institution_id=session['user_id'],
+        amount=amount,
+        deadline=deadline,
+        criteria=criteria,
+        department=department
+    )
+    db.session.add(new_sch)
+    db.session.commit()
+    flash('Scholarship created','success')
+    return redirect(url_for('dashboard'))
+
+@app.route('/edit_scholarship/<int:id>', methods=['GET','POST'], endpoint='edit_scholarship')
+def edit_scholarship(id):
+    if session.get('role')!='institution':
+        flash('Unauthorized','error')
+        return redirect(url_for('login'))
+    sch = Scholarship.query.get_or_404(id)
+    if sch.institution_id != session['user_id']:
+        flash('Cannot edit others','error')
+        return redirect(url_for('dashboard'))
+
+    if request.method=='POST':
+        sch.title      = request.form['name'].strip()
+        sch.amount     = float(request.form['amount'])
+        sch.deadline   = datetime.strptime(request.form['deadline'],'%Y-%m-%d')
+        sch.criteria   = request.form['criteria'].strip()
+        sch.department = request.form['department'].strip()
+        db.session.commit()
+        flash('Scholarship updated','success')
+        return redirect(url_for('dashboard'))
+
+    return render_template('edit_scholarship.html', scholarship=sch)
+
+@app.route('/delete-scholarship/<int:id>')
+def delete_scholarship(id):
+    if session.get('role')!='institution':
+        flash('Unauthorized','error')
+        return redirect(url_for('login'))
+    sch = Scholarship.query.get_or_404(id)
+    if sch.institution_id != session['user_id']:
+        flash('Cannot delete others','error')
+        return redirect(url_for('dashboard'))
+    db.session.delete(sch)
+    db.session.commit()
+    flash('Scholarship deleted','success')
+    return redirect(url_for('dashboard'))
+
+@app.route('/apply/<int:scholarship_id>', methods=['GET','POST'])
+def apply(scholarship_id):
+    # only logged-in students
+    if session.get('role') != 'student':
+        return redirect(url_for('login'))
+
+    sch = Scholarship.query.get_or_404(scholarship_id)
+
+    if request.method == 'POST':
+        # 1) Gather & validate inputs
+        try:
+            data = {k: float(request.form[k]) for k in
+                    ['overall','hsc','ssc','preparation','attendance','income','extra']}
+            dept = request.form['department']
+        except (KeyError, ValueError):
+            flash('All fields are required and must be numeric.', 'error')
+            return redirect(request.url)
+
+        for k in ['overall','hsc','ssc']:
+            if not 0 <= data[k] <= 100:
+                flash('Scores must be between 0 and 100.', 'error')
+                return redirect(request.url)
+
+        # 2) Build feature matrix
+        import pandas as pd
+        df_num = pd.DataFrame([{
+            'HSC':         data['hsc'],
+            'SSC':         data['ssc'],
+            'Preparation': data['preparation'],
+            'Attendance':  data['attendance'],
+            'Overall':     data['overall'],
+            'Income':      data['income'],
+            'Extra':       data['extra']
+        }])
+        df_cat = pd.get_dummies(
+            pd.DataFrame([{'Department': dept}]),
+            prefix='dept'
+        )
+        feats = pd.concat([df_num, df_cat], axis=1)
+
+        # 3) Predict & save
+        pred   = predictor.predict(feats)[0]
+        status = 'approved' if pred else 'rejected'
+        appobj = Application(
+            student_id      = session['user_id'],
+            scholarship_id  = sch.id,
+            overall_score   = data['overall'],
+            hsc_score       = data['hsc'],
+            ssc_score       = data['ssc'],
+            preparation     = data['preparation'],
+            attendance      = data['attendance'],
+            income          = data['income'],
+            extracurricular = data['extra'],
+            status          = status
+        )
+        db.session.add(appobj)
+        db.session.commit()
+
+        flash(f'Application {status}!', 'success' if pred else 'error')
+        return redirect(url_for('dashboard'))
+
+    # GET → show form
+    return render_template('apply.html', scholarship=sch)
+
+
+# -------------------------------
+# Main Entry
+# -------------------------------
+if __name__=='__main__':
     with app.app_context():
+        #db.drop_all()
         db.create_all()
-    app.run(debug=True, port=5001)
+    try:
+        predictor.train_model()
+    except Exception:
+        pass
+    try:
+        w3 = Web3(Web3.HTTPProvider('http://localhost:7545'))
+        with open('ScholarshipManager.json') as f:
+            abi = json.load(f).get('abi', [])
+        contract = w3.eth.contract(address=Web3.to_checksum_address('0x471F8332f1E1249a351776E492330f54c7B04390'), abi=abi)
+    except Exception:
+        pass
+    print("Starting Flask on http://127.0.0.1:5000")
+    app.run(debug=True, host='127.0.0.1', port=5000)

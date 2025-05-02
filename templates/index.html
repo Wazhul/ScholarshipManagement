@@ -2,14 +2,141 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Scholarship Management</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scholarship Portal - Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .sidebar {
+            background: #f8f9fa;
+            height: 100vh;
+            position: fixed;
+            right: 0;
+            top: 0;
+            padding: 20px;
+        }
+        .scholarship-card {
+            transition: transform 0.3s;
+            cursor: pointer;
+        }
+        .scholarship-card:hover {
+            transform: translateY(-5px);
+        }
+        .status-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+    </style>
 </head>
 <body>
-<div class="container">
-    <h1 class="mt-5">Welcome to the Scholarship Management DApp</h1>
-    <a href="{{ url_for('register') }}" class="btn btn-primary mt-3">Register</a>
-    <a href="{{ url_for('login') }}" class="btn btn-secondary mt-3">Login</a>
-</div>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-graduation-cap"></i> ScholarHub
+            </a>
+            <div class="dropdown">
+                <button class="btn btn-light dropdown-toggle" type="button" id="roleDropdown" data-bs-toggle="dropdown">
+                    Select Role
+                </button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="#" data-role="student">Student</a></li>
+                    <li><a class="dropdown-item" href="#" data-role="institution">Institution</a></li>
+                    <li><a class="dropdown-item" href="#" data-role="donor">Donor</a></li>
+                    <li><a class="dropdown-item" href="#" data-role="admin">Admin</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <!-- Main Dashboard -->
+            <div class="col-md-9">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h2>Available Scholarships</h2>
+                    <div class="user-info">
+                        <span class="badge bg-info">Wallet: {{ student.wallet_address|truncate(10) }}</span>
+                        <div class="dropdown d-inline">
+                            <button class="btn btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                <i class="fas fa-user"></i> {{ student.username }}
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="#">Profile</a></li>
+                                <li><a class="dropdown-item" href="#">Logout</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scholarship Cards -->
+                <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+                    {% for scholarship in scholarships %}
+                    <div class="col">
+                        <div class="card scholarship-card h-100">
+                            <div class="card-body">
+                                <span class="badge bg-{{ scholarship.status_color }} status-badge">
+                                    {{ scholarship.status }}
+                                </span>
+                                <h5 class="card-title">{{ scholarship.name }}</h5>
+                                <p class="text-muted">{{ scholarship.institution }}</p>
+                                <p class="card-text">{{ scholarship.description|truncate(100) }}</p>
+                                <div class="progress mb-3">
+                                    <div class="progress-bar" style="width: {{ scholarship.funded_percent }}%">
+                                        {{ scholarship.funded_percent }}% Funded
+                                    </div>
+                                </div>
+                                <div class="d-flex justify-content-between">
+                                    <span class="text-success">${{ scholarship.amount }}</span>
+                                    <span class="text-danger">{{ scholarship.deadline }}</span>
+                                </div>
+                                <a href="#" class="btn btn-primary mt-3 w-100">
+                                    {% if scholarship.applied %}
+                                        <i class="fas fa-check"></i> Applied
+                                    {% else %}
+                                        Apply Now
+                                    {% endif %}
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Right Sidebar -->
+            <div class="col-md-3 sidebar">
+                <div class="mb-4">
+                    <h4>Quick Stats</h4>
+                    <div class="card">
+                        <div class="card-body">
+                            <h5><i class="fas fa-file-alt"></i> Applications</h5>
+                            <p class="mb-0">{{ student.applied_scholarships }} Applied</p>
+                            <p class="mb-0">{{ student.approved_scholarships }} Approved</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <h4>Quick Actions</h4>
+                    <div class="list-group">
+                        <a href="{{ url_for('apply') }}" class="list-group-item list-group-item-action">
+                            <i class="fas fa-plus-circle"></i> New Application
+                        </a>
+                        <a href="#" class="list-group-item list-group-item-action">
+                            <i class="fas fa-wallet"></i> Wallet Management
+                        </a>
+                        <a href="#" class="list-group-item list-group-item-action">
+                            <i class="fas fa-bell"></i> Notifications (3)
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

@@ -2,43 +2,203 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Apply for Scholarship</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scholarship Application</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .upload-box {
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            transition: border-color 0.3s;
+        }
+        .upload-box:hover {
+            border-color: #0d6efd;
+        }
+        .input-toggle {
+            cursor: pointer;
+            color: #0d6efd;
+            text-decoration: underline;
+        }
+        .document-preview {
+            max-width: 200px;
+            margin: 10px 0;
+        }
+    </style>
 </head>
 <body>
-<div class="container">
-    <h2 class="mt-5">Scholarship Application</h2>
+<div class="container py-5">
+    <h2 class="mb-4 text-center"><i class="fas fa-file-alt"></i> Scholarship Application</h2>
+    
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
         {% for category, message in messages %}
-        <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
+        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
         {% endfor %}
     {% endif %}
     {% endwith %}
-    <form method="post" action="{{ url_for('apply') }}">
-    <div class="form-group">
-        <label for="overall">Overall Score:</label>
-        <input type="number" step="0.01" class="form-control" name="overall" required>
-    </div>
-    <div class="form-group">
-        <label for="income">Income:</label>
-        <input type="number" step="0.01" class="form-control" name="income" required>
-    </div>
-    <div class="form-group">
-        <label for="extra">Extracurricular Score:</label>
-        <input type="number" step="0.01" class="form-control" name="extra" required>
-    </div>
-    <div class="form-group">
-        <label for="department">Department:</label>
-        <select name="department" class="form-control" required>
-        <option value="Computer Science and Engineering">Computer Science and Engineering</option>
-        <option value="Electrical Engineering">Electrical Engineering</option>
-        <option value="Mechanical Engineering">Mechanical Engineering</option>
-        <!-- Add more options as needed -->
-        </select>
-    </div>
-    <button type="submit" class="btn btn-primary">Submit Application</button>
+
+    <form method="post"
+            action="{{ url_for('apply', scholarship_id=scholarship.id) }}"
+            enctype="multipart/form-data">
+        <!-- Academic Information Section -->
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5><i class="fas fa-graduation-cap"></i> Academic Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Overall Score/GPA</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" name="overall" 
+                                   step="0.01" min="0" max="100" required>
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <small class="text-muted">Or <span class="input-toggle" onclick="toggleInput('gpa')">enter text description</span></small>
+                        <textarea class="form-control mt-2 d-none" name="overall_text" 
+                                  placeholder="Describe your academic achievements"></textarea>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label">Extracurricular Score</label>
+                        <input type="number" class="form-control" name="extra" 
+                               step="0.01" min="0" max="10" required>
+                        <small class="text-muted">Or <span class="input-toggle" onclick="toggleInput('extra')">describe activities</span></small>
+                        <textarea class="form-control mt-2 d-none" name="extra_text" 
+                                  placeholder="List your extracurricular activities"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="hsc">HSC Score:</label>
+            <input type="number" class="form-control" name="hsc" min="0" max="100" required>
+        </div>
+        <div class="form-group">
+            <label for="ssc">SSC Score:</label>
+            <input type="number" class="form-control" name="ssc" min="0" max="100" required>
+        </div>
+        <div class="form-group">
+            <label for="preparation">Preparation Hours:</label>
+            <input type="number" class="form-control" name="preparation" min="0" required>
+        </div>
+        <div class="form-group">
+            <label for="attendance">Attendance Percentage:</label>
+            <input type="number" class="form-control" name="attendance" min="0" max="100" required>
+        </div>
+        <!-- Financial Information Section -->
+        <div class="card mb-4">
+            <div class="card-header bg-success text-white">
+                <h5><i class="fas fa-money-bill-wave"></i> Financial Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Annual Family Income</label>
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input type="number" class="form-control" name="income" 
+                                   step="0.01" min="0" required>
+                        </div>
+                        <small class="text-muted">Or <span class="input-toggle" onclick="toggleInput('income')">describe financial situation</span></small>
+                        <textarea class="form-control mt-2 d-none" name="income_text" 
+                                  placeholder="Describe your financial circumstances"></textarea>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label">Department</label>
+                        <select name="department" class="form-select" required>
+                            <option value="">Select Department</option>
+                            <option value="Computer Science and Engineering">Computer Science & Engineering</option>
+                            <option value="Electrical Engineering">Electrical Engineering</option>
+                            <option value="Mechanical Engineering">Mechanical Engineering</option>
+                            <!-- Add more departments -->
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Document Upload Section -->
+        <div class="card mb-4">
+            <div class="card-header bg-warning text-dark">
+                <h5><i class="fas fa-file-upload"></i> Supporting Documents</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <!-- Academic Documents -->
+                    <div class="col-md-6">
+                        <div class="upload-box" onclick="document.getElementById('academicDocs').click()">
+                            <i class="fas fa-file-pdf fa-3x text-danger"></i>
+                            <p class="mt-2 mb-1">Upload Academic Documents</p>
+                            <small class="text-muted">(Transcripts, Certificates, etc.)</small>
+                            <input type="file" class="d-none" id="academicDocs" name="academic_docs[]" 
+                                   accept=".pdf,.jpg,.jpeg,.png" multiple>
+                        </div>
+                        <div id="academic-preview" class="document-preview"></div>
+                    </div>
+
+                    <!-- Financial Documents -->
+                    <div class="col-md-6">
+                        <div class="upload-box" onclick="document.getElementById('financialDocs').click()">
+                            <i class="fas fa-file-invoice-dollar fa-3x text-success"></i>
+                            <p class="mt-2 mb-1">Upload Financial Documents</p>
+                            <small class="text-muted">(Tax Returns, Bank Statements, etc.)</small>
+                            <input type="file" class="d-none" id="financialDocs" name="financial_docs[]" 
+                                   accept=".pdf,.jpg,.jpeg,.png" multiple>
+                        </div>
+                        <div id="financial-preview" class="document-preview"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-grid gap-2">
+            <button type="submit" class="btn btn-primary btn-lg">
+                <i class="fas fa-paper-plane"></i> Submit Application
+            </button>
+        </div>
     </form>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Toggle between numeric input and text description
+    function toggleInput(field) {
+        const numberInput = document.querySelector(`input[name=${field}]`);
+        const textInput = document.querySelector(`textarea[name=${field}_text]`);
+        
+        numberInput.classList.toggle('d-none');
+        textInput.classList.toggle('d-none');
+        numberInput.required = !numberInput.classList.contains('d-none');
+        textInput.required = !textInput.classList.contains('d-none');
+    }
+
+    // File upload preview functionality
+    function handleFileSelect(inputId, previewId) {
+        const input = document.getElementById(inputId);
+        const preview = document.getElementById(previewId);
+
+        input.addEventListener('change', function(e) {
+            preview.innerHTML = '';
+            Array.from(e.target.files).forEach(file => {
+                const div = document.createElement('div');
+                div.className = 'text-start small';
+                div.innerHTML = `<i class="fas fa-file me-2"></i>${file.name}`;
+                preview.appendChild(div);
+            });
+        });
+    }
+
+    // Initialize file upload handlers
+    handleFileSelect('academicDocs', 'academic-preview');
+    handleFileSelect('financialDocs', 'financial-preview');
+</script>
 </body>
 </html>

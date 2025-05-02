@@ -2,23 +2,237 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard - Scholarship Management</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScholarHub Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .scholarship-card {
+            transition: transform 0.3s;
+            cursor: pointer;
+        }
+        .scholarship-card:hover {
+            transform: translateY(-5px);
+        }
+        .status-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+        .nav-role {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 0.5rem 1rem;
+        }
+    </style>
 </head>
 <body>
-<div class="container">
-    <h2 class="mt-5">Dashboard</h2>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-        {% for category, message in messages %}
-        <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
-        {% endfor %}
-    {% endif %}
-    {% endwith %}
-    <p><strong>Username:</strong> {{ student.username }}</p>
-    <p><strong>Wallet Address:</strong> {{ student.wallet_address }}</p>
-    <p><strong>Scholarship Status:</strong> {{ student.scholarship_status }}</p>
-    <a href="{{ url_for('apply') }}" class="btn btn-primary">Reapply</a>
-</div>
+    <div class="container-fluid">
+        <!-- Header Section -->
+        <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="#">
+                    <i class="fas fa-graduation-cap"></i> ScholarHub
+                </a>
+                <div class="d-flex align-items-center">
+                    <span class="nav-role text-dark me-3">
+                        Logged in as: {{ current_user.role|capitalize }}
+                    </span>
+                    <div class="dropdown">
+                        <button class="btn btn-light dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-user"></i> {{ current_user.username }}
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#">Profile Settings</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('logout') }}">Logout</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Dashboard Content -->
+        <div class="row">
+            <!-- Role-specific Content -->
+            {% if current_user.role == 'student' %}
+                <!-- Student View -->
+                <div class="col-md-8">
+                    <h3 class="mb-4">Your Applications</h3>
+                    <div class="row row-cols-1 row-cols-md-2 g-4">
+                        {% for app in applied_scholarships %}
+                        <div class="col">
+                            <div class="card scholarship-card h-100">
+                                <div class="card-body">
+                                    <span class="badge bg-{{ 'success' if app.status=='approved' else 'warning' if app.status=='pending' else 'danger' }}">
+                                        {{ app.status|capitalize }}
+                                    </span>
+                                    <h5 class="card-title">{{ app.scholarship.title }}</h5>
+                                    <p class="text-muted">
+                                        {{ app.scholarship.institution.institution_name or app.scholarship.institution.username }}
+                                    </p>
+                                    <div class="d-flex justify-content-between">
+                                        <span class="text-success">${{ app.scholarship.amount }}</span>
+                                        <span class="text-muted">Applied: {{ app.apply_date.strftime('%Y-%m-%d %H:%M') }}</span>
+                                    </div>
+                                    {% if app.status == 'rejected' and app.rejection_reason %}
+                                        <div class="mt-2 text-danger">
+                                            <small>Reason: {{ app.rejection_reason }}</small>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <h3 class="mt-5 mb-4">Available Scholarships</h3>
+                    <div class="row row-cols-1 row-cols-md-2 g-4">
+                        {% for scholarship in available_scholarships %}
+                        <div class="col">
+                            <div class="card scholarship-card h-100">
+                                <div class="card-body">
+                                    <h5 class="card-title">{{ scholarship.title }}</h5>
+                                    <p class="text-muted">
+                                        {{ scholarship.institution.institution_name or scholarship.institution.username }}
+                                    </p>
+                                    <p class="card-text">{{ scholarship.criteria }}</p>
+                                    <div class="d-flex justify-content-between">
+                                        <span class="text-success">${{ scholarship.amount }}</span>
+                                        <span class="text-danger">{{ scholarship.deadline.strftime('%Y-%m-%d') }}</span>
+                                    </div>
+                                    <button class="btn btn-primary w-100 mt-3"
+                                            onclick="window.location.href='{{ url_for('apply', scholarship_id=scholarship.id) }}'">
+                                        Apply Now
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+            {% elif current_user.role == 'institution' %}
+                <!-- Institution View -->
+                <div class="col-md-8">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h3>Manage Scholarships</h3>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createScholarshipModal">
+                            <i class="fas fa-plus"></i> Create New
+                        </button>
+                    </div>
+
+                    <div class="row row-cols-1 row-cols-md-2 g-4">
+                        {% for scholarship in created_scholarships %}
+                        <div class="col">
+                            <div class="card scholarship-card h-100">
+                                <div class="card-body">
+                                    <h5 class="card-title">{{ scholarship.name }}</h5>
+                                    <p class="text-muted">Applications: {{ scholarship.applications|length }}</p>
+                                    <div class="d-flex justify-content-between">
+                                        <span class="text-success">${{ scholarship.amount }}</span>
+                                        <span class="text-danger">{{ scholarship.deadline }}</span>
+                                    </div>
+                                    <div class="mt-3 d-flex justify-content-between">
+                                        <button class="btn btn-sm btn-outline-primary"
+                                                onclick="window.location.href='{{ url_for('edit_scholarship', id=scholarship.id) }}'">
+                                            Edit
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger"
+                                                onclick="confirmDelete('{{ scholarship.id }}')">
+                                            Delete
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <!-- Create Scholarship Modal -->
+                    <div class="modal fade" id="createScholarshipModal">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">Create New Scholarship</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <form id="scholarshipForm" method="POST" action="{{ url_for('create_scholarship') }}">
+                                        <div class="mb-3">
+                                            <label class="form-label">Scholarship Name</label>
+                                            <input type="text" class="form-control" name="title" required>
+                                            <input type="text" class="form-control" name="name" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Amount</label>
+                                            <input type="number" class="form-control" name="amount" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Deadline</label>
+                                            <input type="date" class="form-control" name="deadline" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Criteria</label>
+                                            <textarea class="form-control" name="criteria" rows="3" required></textarea>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Department</label>
+                                            <input type="text" class="form-control" name="department" required>
+                                        </div>
+                                        <button type="submit" class="btn btn-primary w-100">Create Scholarship</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+
+            <!-- Sidebar (Common for all roles) -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Wallet Information</h5>
+                        <p class="text-muted">{{ current_user.wallet_address }}</p>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>Balance:</span>
+                            <strong>{{ current_user.balance }} ETH</strong>
+                        </div>
+                    </div>
+                </div>
+
+                {% if current_user.role == 'student' %}
+                <div class="card mt-4">
+                    <div class="card-body">
+                        <h5 class="card-title">Application Stats</h5>
+                        <div class="list-group">
+                            <div class="list-group-item d-flex justify-content-between">
+                                <span>Pending Applications</span>
+                                <span class="badge bg-warning">{{ application_stats.pending }}</span>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between">
+                                <span>Approved Scholarships</span>
+                                <span class="badge bg-success">{{ application_stats.approved }}</span>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between">
+                                <span>Rejected Applications</span>
+                                <span class="badge bg-danger">{{ application_stats.rejected }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function confirmDelete(scholarshipId) {
+            if (confirm('Are you sure you want to delete this scholarship?')) {
+                window.location.href = `/delete-scholarship/${scholarshipId}`;
+            }
+        }
+    </script>
 </body>
 </html>
